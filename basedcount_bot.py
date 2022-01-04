@@ -70,7 +70,6 @@ myBasedCount_Variations = ['/mybasedcount']
 basedCountUser_Variations = ['/basedcount']
 mostBased_Variations = ['/mostbased']
 
-time.sleep(10)
 backupDataBased()
 run = True
 
