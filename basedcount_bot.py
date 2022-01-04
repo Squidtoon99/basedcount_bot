@@ -8,7 +8,6 @@ from datetime import timedelta, datetime
 import traceback
 from subprocess import call
 from os import path
-from datetime import timedelta, datetime
 import signal
 import time
 
