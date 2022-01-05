@@ -10,6 +10,7 @@ from subprocess import call
 from os import path
 import signal
 import time
+import re
 
 # basedcount_bot Libraries
 from commands import based, myBasedCount, basedCountUser, mostBased, removePill
@@ -20,56 +21,128 @@ from backupDrive import backupDataBased
 
 
 # Connect to Reddit
-reddit = praw.Reddit(client_id=bot.client_id,
-                     client_secret=bot.client_secret,
-                     user_agent=bot.user_agent,
-                     username=bot.username,
-                     password=bot.password)
+reddit = praw.Reddit(
+    client_id=bot.client_id,
+    client_secret=bot.client_secret,
+    user_agent=bot.user_agent,
+    username=bot.username,
+    password=bot.password,
+)
 
 # Parameters
-subreddit = reddit.subreddit('PoliticalCompassMemes')
-version = 'Bot v2.11.0'
-infoMessage = 'I am a bot created to keep track of how based users are. '\
-    'Check out the [FAQ](https://reddit.com/r/basedcount_bot/comments/iwhkcg/basedcount_bot_info_and_faq/). '\
-    'I also track user [pills](https://reddit.com/r/basedcount_bot/comments/l23lwe/basedcount_bot_now_tracks_user_pills/).\n\n'\
-    'If you have any suggestions or questions, please message them to me with the subject '\
-    'of "Suggestion" or "Question" to automatically forward them to a human operator.\n\n'\
-    '> based - adj. - to be in possession of viewpoints acquired through logic or observation '\
-    'rather than simply following what your political alignment dictates, '\
-    'often used as a sign of respect but not necessarily agreement\n\n'\
-    + version+'\n\n'\
-    '**Commands: /info | /mybasedcount | /basedcount username | /mostbased | /removepill pill**'
+subreddit = reddit.subreddit("PoliticalCompassMemes")
+version = "Bot v2.11.0"
+infoMessage = (
+    "I am a bot created to keep track of how based users are. "
+    "Check out the [FAQ](https://reddit.com/r/basedcount_bot/comments/iwhkcg/basedcount_bot_info_and_faq/). "
+    "I also track user [pills](https://reddit.com/r/basedcount_bot/comments/l23lwe/basedcount_bot_now_tracks_user_pills/).\n\n"
+    "If you have any suggestions or questions, please message them to me with the subject "
+    'of "Suggestion" or "Question" to automatically forward them to a human operator.\n\n'
+    "> based - adj. - to be in possession of viewpoints acquired through logic or observation "
+    "rather than simply following what your political alignment dictates, "
+    "often used as a sign of respect but not necessarily agreement\n\n"
+    + version
+    + "\n\n"
+    "**Commands: /info | /mybasedcount | /basedcount username | /mostbased | /removepill pill**"
+)
 
 # Vocabulary
-excludedAccounts = ['basedcount_bot', 'VredditDownloader']
-excludedParents = ['basedcount_bot']
-botName_Variations = ['/u/basedcount_bot ', 'u/basedcount_bot ',
-                      'basedcount_bot ', '/u/basedcount_bot', 'u/basedcount_bot', 'basedcount_bot']
+excludedAccounts = ["basedcount_bot", "VredditDownloader"]
+excludedParents = ["basedcount_bot"]
+botName_Variations = [
+    "/u/basedcount_bot ",
+    "u/basedcount_bot ",
+    "basedcount_bot ",
+    "/u/basedcount_bot",
+    "u/basedcount_bot",
+    "basedcount_bot",
+]
 
-based_Variations = ['based', 'baste', 'basado', 'basiert',
-                    'basato', 'fundiert', 'fondatum', 'bazita',
-                    'מבוסס', 'oparte', 'bazowane', 'basé', 'baseado',
-                    'gebaseerd', 'bazirano', 'perustuvaa', 'perustunut',
-                    'основано', '基于', 'baseret', 'بايسد, ',
-                    'na základě', 'basert', 'bazirano', 'baserad',
-                    'basat', 'ベース', 'bazat', 'berdasar', 'Базирано',
-                    'gebasseerd', 'Oj +1 byczq +1', 'Oj+1byczq+1']
+based_Variations = [
+    "based",
+    "baste",
+    "basado",
+    "basiert",
+    "basato",
+    "fundiert",
+    "fondatum",
+    "bazita",
+    "מבוסס",
+    "oparte",
+    "bazowane",
+    "basé",
+    "baseado",
+    "gebaseerd",
+    "bazirano",
+    "perustuvaa",
+    "perustunut",
+    "основано",
+    "基于",
+    "baseret",
+    "بايسد, ",
+    "na základě",
+    "basert",
+    "bazirano",
+    "baserad",
+    "basat",
+    "ベース",
+    "bazat",
+    "berdasar",
+    "Базирано",
+    "gebasseerd",
+    "Oj +1 byczq +1",
+    "Oj+1byczq+1",
+]
 
-pillExcludedStrings_start = ['based', 'baste', 'and ', 'but ', 'and-', 'but-', ' ', '-', 'r/', '/r/',
-                             'basado', 'basiert',
-                             'basato', 'fundiert', 'fondatum', 'bazita',
-                             'מבוסס', 'oparte', 'bazowane', 'basé', 'baseado',
-                             'gebaseerd', 'bazirano', 'perustuvaa', 'perustunut',
-                             'основано', '基于', 'baseret', 'بايسد, ',
-                             'na základě', 'basert', 'bazirano', 'baserad',
-                             'basat', 'ベース', 'bazat', 'berdasar', 'Базирано',
-                             'gebasseerd', 'Oj +1 byczq +1', 'Oj+1byczq+1']
+pillExcludedStrings_start = [
+    "based",
+    "baste",
+    "and ",
+    "but ",
+    "and-",
+    "but-",
+    " ",
+    "-",
+    "r/",
+    "/r/",
+    "basado",
+    "basiert",
+    "basato",
+    "fundiert",
+    "fondatum",
+    "bazita",
+    "מבוסס",
+    "oparte",
+    "bazowane",
+    "basé",
+    "baseado",
+    "gebaseerd",
+    "bazirano",
+    "perustuvaa",
+    "perustunut",
+    "основано",
+    "基于",
+    "baseret",
+    "بايسد, ",
+    "na základě",
+    "basert",
+    "bazirano",
+    "baserad",
+    "basat",
+    "ベース",
+    "bazat",
+    "berdasar",
+    "Базирано",
+    "gebasseerd",
+    "Oj +1 byczq +1",
+    "Oj+1byczq+1",
+]
 
-pillExcludedStrings_end = [' and', ' but', ' ', '-']
+pillExcludedStrings_end = [" and", " but", " ", "-"]
 
-myBasedCount_Variations = ['/mybasedcount']
-basedCountUser_Variations = ['/basedcount']
-mostBased_Variations = ['/mostbased']
+myBasedCount_Variations = ["/mybasedcount"]
+basedCountUser_Variations = ["/basedcount"]
+mostBased_Variations = ["/mostbased"]
 
 backupDataBased()
 run = True
@@ -82,36 +155,42 @@ def checkMail():
             closeBot()
         message.mark_read()
         currentTime = datetime.now().timestamp()
-        if ((message.created_utc > (currentTime-180)) and (message.was_comment is False)):
+        if (message.created_utc > (currentTime - 180)) and (
+            message.was_comment is False
+        ):
             content = str(message.body)
             author = str(message.author)
 
-# --------- Check Questions and Suggestions and then reply
-            if ('suggestion' in str(message.subject).lower()) or ('question' in str(message.subject).lower()):
-                if str(message.subject).lower() in 'suggestion':
+            # --------- Check Questions and Suggestions and then reply
+            if ("suggestion" in str(message.subject).lower()) or (
+                "question" in str(message.subject).lower()
+            ):
+                if str(message.subject).lower() in "suggestion":
                     message.reply(
-                        'Thank you for your suggestion. I have forwarded it to a human operator.')
-                if str(message.subject).lower() in 'question':
+                        "Thank you for your suggestion. I have forwarded it to a human operator."
+                    )
+                if str(message.subject).lower() in "question":
                     message.reply(
-                        'Thank you for your question. I have forwarded it to a human operator, and I should reply shortly with an answer.')
+                        "Thank you for your question. I have forwarded it to a human operator, and I should reply shortly with an answer."
+                    )
                 reddit.redditor(bot.admin).message(
-                    str(message.subject) + ' from ' + author, content)
+                    str(message.subject) + " from " + author, content
+                )
 
-# --------- Check for mod commands
+            # --------- Check for mod commands
             for mpass in modPasswords:
-                if (content.startswith(mpass.password)):
+                if content.startswith(mpass.password):
                     if author == mpass.user:
-                        cleanContent = content.replace(
-                            mpass.password + ' ', '')
-                        if cleanContent.startswith('/removepill '):
-                            cleanContent = cleanContent.replace(
-                                '/removepill ', '')
+                        cleanContent = content.replace(mpass.password + " ", "")
+                        if cleanContent.startswith("/removepill "):
+                            cleanContent = cleanContent.replace("/removepill ", "")
                             user_pill_split = cleanContent.split(" ", 1)
                             replyMessage = removePill(
-                                user_pill_split[0], user_pill_split[1])
+                                user_pill_split[0], user_pill_split[1]
+                            )
 
-# --------- Check for user commands
-            if '/info' in content.lower():
+            # --------- Check for user commands
+            if "/info" in content.lower():
                 message.reply(infoMessage)
 
             for v in myBasedCount_Variations:
@@ -132,7 +211,7 @@ def checkMail():
                     message.reply(replyMessage)
                     break
 
-            if content.lower().startswith('/removepill'):
+            if content.lower().startswith("/removepill"):
                 replyMessage = removePill(author, content)
                 message.reply(replyMessage)
 
@@ -153,11 +232,14 @@ def readComments():
                 # Remove bot mentions from comment text
                 for v in botName_Variations:
                     if v in commenttext:
-                        commenttext.replace(v, '')
+                        commenttext.replace(v, "")
 
-# ------------- Based Check
+                # ------------- Based Check
                 for v in based_Variations:
-                    if (commenttext.lower().startswith(v))and not (commenttext.lower().startswith('based on ') or commenttext.lower().startswith('based off ')):
+                    if (commenttext.lower().startswith(v)) and not (
+                        commenttext.lower().startswith("based on ")
+                        or commenttext.lower().startswith("based off ")
+                    ):
 
                         # Get data from parent comment
                         parent = str(comment.parent())
@@ -171,32 +253,37 @@ def readComments():
                             parentFlair = parentComment.author_flair_text
                         except:
                             parentAuthor = str(comment.submission.author)
-                            parentText = 'submission is a post'
+                            parentText = "submission is a post"
                             parentFlair = comment.submission.author_flair_text
                         flair = str(checkFlair(parentFlair))
 
                         # Make sure bot isn't the parent
-                        if (parentAuthor not in excludedParents) and (parentAuthor not in author) and (comment.author_flair_text != 'None'):
+                        if (
+                            (parentAuthor not in excludedParents)
+                            and (parentAuthor not in author)
+                            and (comment.author_flair_text != "None")
+                        ):
 
                             # Check for cheating
                             cheating = False
                             for v in based_Variations:
-                                if parentText.lower().startswith(v) and (len(parentText) < 50):
+                                if parentText.lower().startswith(v) and (
+                                    len(parentText) < 50
+                                ):
                                     cheating = True
 
                             # Check for pills
-                            pill = 'None'
-                            if 'pilled' in commenttext.lower():
-                                pill = commenttext.lower().partition('pilled')[
-                                    0]
-                                if (len(pill) < 70) and ('.' not in pill):
+                            pill = "None"
+                            if "pilled" in commenttext.lower():
+                                pill = commenttext.lower().partition("pilled")[0]
+                                if (len(pill) < 70) and ("." not in pill):
 
                                     # Clean pill string beginning
                                     pillClean = 0
                                     while pillClean < len(pillExcludedStrings_start):
                                         for pes in pillExcludedStrings_start:
                                             if pill.startswith(pes):
-                                                pill = pill.replace(pes, '', 1)
+                                                pill = pill.replace(pes, "", 1)
                                                 pillClean = 0
                                             else:
                                                 pillClean += 1
@@ -211,18 +298,17 @@ def readComments():
                                             else:
                                                 pillClean += 1
                                 else:
-                                    pill = 'None'
+                                    pill = "None"
 
                                 # Make sure pill is acceptable
                                 for w in bannedWords:
                                     if w in pill:
-                                        pill = 'None'
+                                        pill = "None"
 
                             # Calculate Based Count and build reply message
                             if not cheating:
-                                if flair != 'Unflaired':
-                                    replyMessage = based(
-                                        parentAuthor, flair, pill)
+                                if flair != "Unflaired":
+                                    replyMessage = based(parentAuthor, flair, pill)
 
                                     # Build list of users and send Cheat Report to admin
                                     checkForCheating(author, parentAuthor)
@@ -235,8 +321,8 @@ def readComments():
                                     comment.reply(replyMessage)
                                 break
 
-# ------------- Commands
-                if commenttext.lower().startswith('/info'):
+                # ------------- Commands
+                if commenttext.lower().startswith("/info"):
                     comment.reply(infoMessage)
 
                 for v in myBasedCount_Variations:
@@ -257,15 +343,14 @@ def readComments():
                         comment.reply(replyMessage)
                         break
 
-                if commenttext.lower().startswith('/removepill'):
+                if commenttext.lower().startswith("/removepill"):
                     replyMessage = removePill(author, commenttext)
                     comment.reply(replyMessage)
                     break
 
-
-# - Exception Handler
+    # - Exception Handler
     except praw.exceptions.APIException as e:
-        if (e.error_type == "RATELIMIT"):
+        if e.error_type == "RATELIMIT":
             delay = re.search("(\d+) minutes?", e.message)
             if delay:
                 delay_seconds = float(int(delay.group(1)) * 60)
@@ -287,11 +372,11 @@ def main():
     try:
         checkMail()
         readComments()
-        print('End Cycle')
+        print("End Cycle")
 
     # Record info if an error is encountered
     except Exception:
-        print('Error occurred:' + str(datetime.today().strftime('%Y-%m-%d')))
+        print("Error occurred:" + str(datetime.today().strftime("%Y-%m-%d")))
         traceback.print_exc()
     # main()
 
@@ -308,7 +393,7 @@ signal.signal(signal.SIGTERM, handler_stop_signals)
 
 def closeBot():
     sendCheatReport()
-    print('Shutdown complete.')
+    print("Shutdown complete.")
     exit()
 
 
