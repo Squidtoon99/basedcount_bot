@@ -363,23 +363,23 @@ class BasedBot(Reddit):
                 # ------------- Commands
                 if commenttext.lower().startswith("/info"):
                     comment.reply(infoMessage)
-
+                content = commenttext.lower()
                 for v in myBasedCount_Variations:
-                    if v in commenttext.lower():
+                    if v in content.lower():
                         replyMessage = myBasedCount(author)
-                        comment.reply(replyMessage)
+                        message.reply(replyMessage)
                         break
 
                 for v in basedCountUser_Variations:
-                    if commenttext.lower().startswith(v):
-                        replyMessage = basedCountUser(commenttext)
-                        comment.reply(replyMessage)
+                    if v in content.lower():
+                        replyMessage = basedCountUser(content)
+                        message.reply(replyMessage)
                         break
 
                 for v in mostBased_Variations:
-                    if v in commenttext.lower():
+                    if v in content.lower():
                         replyMessage = mostBased()
-                        comment.reply(replyMessage)
+                        message.reply(replyMessage)
                         break
 
                 if commenttext.lower().startswith("/removepill"):
