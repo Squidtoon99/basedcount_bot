@@ -12,12 +12,8 @@ from pymongo import MongoClient
 try:
     import ranks
 except ImportError:
-    import imp
-
-    with open("ranks.example.py", "rb") as fp:
-        ranks = imp.load_module(  # this will load the ranks from example file
-            "rank", fp, "ranks.example.py", (".py", "rb", imp.PY_SOURCE)
-        )
+    ranks = None
+ 
 try:
     from passwords import mongoPass
 except ImportError:
