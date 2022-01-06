@@ -5,7 +5,7 @@ from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from apiclient.http import MediaFileUpload
+from googleapiclient.http import MediaFileUpload
 import io
 from googleapiclient.http import MediaIoBaseDownload
 import json
