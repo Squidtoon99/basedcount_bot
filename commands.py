@@ -8,8 +8,20 @@ import pymongo
 from pymongo import MongoClient
 
 # basedcount_bot Libraries
-import ranks
-from passwords import mongoPass
+
+try:
+    import ranks
+except ImportError:
+    import imp
+
+    with open("ranks.example.py", "rb") as fp:
+        ranks = imp.load_module(  # this will load the ranks from example file
+            "rank", fp, "ranks.example.py", (".py", "rb", imp.PY_SOURCE)
+        )
+try:
+    from passwords import mongoPass
+except ImportError:
+    mongoPass = None  # you have some really weird github file config
 
 # No Based Count replies
 myBasedNoUserReply = ["Hmm... I don't see you in my records, as it appears you aren't very based. I guess nobody's perfect.",
