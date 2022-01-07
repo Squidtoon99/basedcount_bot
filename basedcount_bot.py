@@ -3,28 +3,39 @@
 
 # Python Libraries
 import json
-from typing import List
-import praw
+from typing import Collection, List, Optional
+import asyncpraw as praw
 from datetime import timedelta, datetime
-import traceback
-from subprocess import call
-from os import path
 import signal
 import time
 import re
-from pymongo import MongoClient
-from praw.reddit import Reddit
-from praw.exceptions import APIException
+from asyncpraw.models.helpers import SubredditHelper
+from motor.metaprogramming import Async
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
+from asyncpraw.reddit import Comment, Reddit, Redditor, Subreddit
+from asyncpraw.exceptions import APIException
 from retrie.trie import Trie
 from retrie.retrie import Replacer
-
+import asyncio
 # basedcount_bot Libraries
 from commands import based, myBasedCount, basedCountUser, mostBased, removePill
 from flairs import checkFlair
-from passwords import bot, bannedWords, modPasswords
-from cheating import checkForCheating, sendCheatReport
 from backupDrive import backupDataBased
+import logging
+import os 
 
+
+# I'm going to use an environment PRODUCTION to differentiate between production and development
+if os.getenv("PRODUCTION", "0") == "1":
+    log_level = logging.INFO
+    bot = object()
+    bannedWords = []
+    modPasswords = []
+else:
+    log_level = logging.DEBUG
+    from passwords import bot, bannedWords, modPasswords # I know this is bad but I don't have passwords to work with
+
+logging.basicConfig(level=log_level)
 
 # Connect to Reddit
 
@@ -70,8 +81,7 @@ botName_Variations = Replacer(
     match_substrings=False,  # TODO: discuss whether I should be removing substrings
 )  # I can't tell if removing substrings is a bug or a features
 
-based_Variations = make_re(
-    [
+based_list = [
         "based",
         "baste",
         "basado",
@@ -106,57 +116,29 @@ based_Variations = make_re(
         "Oj +1 byczq +1",
         "Oj+1byczq+1",
     ]
+
+based_Variations = make_re(
+    based_list
 )
 based_Varations_blacklist = make_re(["based on", "based for"])
 
-pillExcludedStrings_start = make_re(
+pillExcludedStrings_start = Replacer(
+    {
+        k: ""
+        for k in 
     [
-        "based",
-        "baste",
-        "and ",
-        "but ",
-        "and-",
-        "but-",
-        " ",
-        "-",
-        "r/",
-        "/r/",
-        "basado",
-        "basiert",
-        "basato",
-        "fundiert",
-        "fondatum",
-        "bazita",
-        "מבוסס",
-        "oparte",
-        "bazowane",
-        "basé",
-        "baseado",
-        "gebaseerd",
-        "bazirano",
-        "perustuvaa",
-        "perustunut",
-        "основано",
-        "基于",
-        "baseret",
-        "بايسد, ",
-        "na základě",
-        "basert",
-        "bazirano",
-        "baserad",
-        "basat",
-        "ベース",
-        "bazat",
-        "berdasar",
-        "Базирано",
-        "gebasseerd",
-        "Oj +1 byczq +1",
-        "Oj+1byczq+1",
-    ],
-    starts=True,
+        'and ', 'but ', 'and-', 'but-', ' ', '-', 'r/', '/r/', *based_list
+    ]},
+    match_substrings=False,  # TODO: discuss whether I should be removing substrings for pill replacer
 )
 
-pillExcludedStrings_end = [" and", " but", " ", "-"]
+pillExcludedStrings_end = Replacer(
+    {
+        k: ""
+        for k in 
+    [" and", " but", " ", "-"]
+    },
+)
 
 myBasedCount_Variations = ["/mybasedcount"]
 basedCountUser_Variations = ["/basedcount"]
@@ -166,7 +148,9 @@ backupDataBased()
 
 
 class BasedBot(Reddit):
-    def __init__(self, config):
+    def __init__(self, config, loop = None):
+        self.loop = loop or asyncio.get_event_loop()
+
         self.config = config
 
         super().__init__(
@@ -178,44 +162,56 @@ class BasedBot(Reddit):
         )
 
         self.active: bool = True
-
-        self.mongo_client = MongoClient(config.mongo_url)
-        self.db = self.mongo_client.dataBased
-        self.sub = self.subreddit(config.subreddit)
+        self._admin : Optional[Redditor] = None 
         self.backup()
+        self.log = logging.getLogger("BasedBot")
+        asyncio.create_task(self.setup())
 
+    async def setup(self):
+        self.sub : Subreddit = await self.subreddit(self.config.subreddit, fetch=True) # we're doing it once so might as well get a bit more info   
+        self.log.info("Subreddit: %s", self.sub.name)
+        self.mongo_client : AsyncIOMotorClient = AsyncIOMotorClient(self.config.mongo_uri)
+        self.db : AsyncIOMotorDatabase = self.mongo_client.dataBased
+        self.log.debug("Connected to MongoDB")
+
+    async def get_admin(self) -> Redditor:
+        if self._admin is None:
+            self._admin = await self.redditor(self.config.admin, fetch = True)
+            
+        return self._admin 
+        
     def backup(self):
         backupDataBased()  # TODO: Implement backup functionality into bot/cron job
 
     def process_command(self, *data):
         ...  # TODO
 
-    def checkMail(self):
-        inbox = self.inbox.unread(limit=30)
-        for message in inbox:
+    async def checkMail(self):
+        async for message in self.inbox.unread():
+            if not self.active:
+                break
             message.mark_read()
             currentTime = datetime.now().timestamp()
-            if (message.created_utc > (currentTime - 180)) and (
-                message.was_comment is False
-            ):
+
+            if isinstance(message, Comment):
+                continue
+            if message.created_utc > (currentTime - 180):
                 content = str(message.body)
                 author = str(message.author)
                 subject = str(message.subject).lower()
                 # --------- Check Questions and Suggestions and then reply
                 if any([x in subject for x in ["question", "suggestion"]]):
-
-                    self.redditor(
-                        bot.admin
-                    ).message(  # message admin first to not send a false positive
+                    admin = await self.get_admin()
+                    await admin.message(  # message admin first to not send a false positive
                         str(message.subject) + " from " + author, content
                     )
 
                     if "suggestion" in subject:
-                        message.reply(
+                        await message.reply(
                             "Thank you for your suggestion. I have forwarded it to a human operator."
                         )
                     else:
-                        message.reply(
+                        await message.reply(
                             "Thank you for your question. I have forwarded it to a human operator, and I should reply shortly with an answer."
                         )
 
@@ -234,37 +230,35 @@ class BasedBot(Reddit):
 
                 # --------- Check for user commands
                 if "/info" in content.lower():
-                    message.reply(infoMessage)
+                    await message.reply(infoMessage)
 
                 for v in myBasedCount_Variations:
                     if v in content.lower():
                         replyMessage = myBasedCount(author)
-                        message.reply(replyMessage)
+                        await message.reply(replyMessage)
                         break
 
                 for v in basedCountUser_Variations:
                     if v in content.lower():
                         replyMessage = basedCountUser(content)
-                        message.reply(replyMessage)
+                        await message.reply(replyMessage)
                         break
 
                 for v in mostBased_Variations:
                     if v in content.lower():
                         replyMessage = mostBased()
-                        message.reply(replyMessage)
+                        await message.reply(replyMessage)
                         break
 
                 if content.lower().startswith("/removepill"):
                     replyMessage = removePill(author, content)
-                    message.reply(replyMessage)
+                    await message.reply(replyMessage)
 
-    def readComments(self):
+    async def readComments(self):
         try:
-            for comment in self.sub.stream.comments(skip_existing=True):
+            async for comment in self.sub.stream.comments(skip_existing=True):
                 if not self.active:
                     break
-
-                self.checkMail()
 
                 # Get data from comment
                 author = str(comment.author)
@@ -276,13 +270,13 @@ class BasedBot(Reddit):
 
                 # ------------- Based Check
 
-                if (based_Variations.match(commenttext) is not None) and (
+                if ( based_Variations.match(commenttext) is not None) and (
                     based_Varations_blacklist.match(commenttext) is None
                 ):
-
+                    #_ = match.group(0) # used in the future if I need what the user said
                     # Get data from parent comment
                     parent = str(comment.parent())
-                    parentComment = self.comment(id=parent)
+                    parentComment = await self.comment(id=parent)
 
                     # See if parent is comment (pass) or post (fail)
                     try:
@@ -304,12 +298,7 @@ class BasedBot(Reddit):
                     ):
 
                         # Check for cheating
-                        cheating = False
-                        for v in based_Variations:
-                            if parentText.lower().startswith(v) and (
-                                len(parentText) < 50
-                            ):
-                                cheating = True
+                        cheating = based_Variations.match(parentText.lower()) is not None and len(parentText) < 50
 
                         # Check for pills
                         pill = "None"
@@ -318,24 +307,10 @@ class BasedBot(Reddit):
                             if (len(pill) < 70) and ("." not in pill):
 
                                 # Clean pill string beginning
-                                pillClean = 0
-                                while pillClean < len(pillExcludedStrings_start):
-                                    for pes in pillExcludedStrings_start:
-                                        if pill.startswith(pes):
-                                            pill = pill.replace(pes, "", 1)
-                                            pillClean = 0
-                                        else:
-                                            pillClean += 1
+                                pill = pillExcludedStrings_start.replace(pill)
 
                                 # Clean pill string ending
-                                pillClean = 0
-                                while pillClean < len(pillExcludedStrings_end):
-                                    for pes in pillExcludedStrings_end:
-                                        if pill.endswith(pes):
-                                            pill = pill[:-1]
-                                            pillClean = 0
-                                        else:
-                                            pillClean += 1
+                                pill = pillExcludedStrings_end.replace(pill)
                             else:
                                 pill = "None"
 
@@ -350,7 +325,7 @@ class BasedBot(Reddit):
                                 replyMessage = based(parentAuthor, flair, pill)
 
                                 # Build list of users and send Cheat Report to admin
-                                checkForCheating(author, parentAuthor)
+                                await self.checkForCheating(author, parentAuthor)
 
                             # Reply
                             else:
@@ -389,47 +364,79 @@ class BasedBot(Reddit):
 
         # - Exception Handler
         except APIException as e:
-            if e.error_type == "RATELIMIT":
+            if e.error_type == "RATELIMIT": # this is a bad implementation but I don't know the responses so I'm just going to keep it
                 delay = re.search(r"(\d+) minutes?", e.message)
                 if delay:
                     delay_seconds = float(int(delay.group(1)) * 60)
-                    time.sleep(delay_seconds)
-                    self.readComments()
+                    await asyncio.sleep(delay_seconds)
                 else:
                     if delay := re.search(r"(\d+) seconds", e.message):
                         delay_seconds = float(delay.group(1))
-                        time.sleep(delay_seconds)
-                        self.readComments()
+                        await asyncio.sleep(delay_seconds)
             else:
                 print(e.message)
 
-    def run(self):
-        while self.active:
-            self.checkMail()
-            self.readComments()
+    async def run(self):
+        mail_task = asyncio.create_task(self.checkMail())
+        read_task = asyncio.create_task(self.readComments())
+        return await asyncio.gather(*[mail_task, read_task])
 
-    def closeBot(self):
+    async def closeBot(self):
         self.active = False
-        sendCheatReport()
+        await self.sendCheatReport()
         print("Shutdown complete.")
 
-    def stop_signal(self, _signum, _frame):
-        self.closeBot()
+    async def stop_signal(self, _signum, _frame):
+        return await self.closeBot()
 
-    # /info
-    # starts with /
-    #  info args[0] arguments = args[1:]
+    # cheating detection 
+    async def checkForCheating(self, user: str, parentAuthor: str) -> None:
+        # Add users to database
+        userProfile = await self.db.basedHistory.find_one({"name": user})
+        if userProfile is None:
+            await self.db.basedHistory.update_one(
+                {"name": user}, {"$set": {parentAuthor: 1}}, upsert=True
+            )
+        else:
+            if parentAuthor not in userProfile:
+                await self.db.basedHistory.update_one({"name": user}, {"$set": {parentAuthor: 1}})
+            else:
+                await self.db.basedHistory.update_one(
+                    {"name": user}, {"$set": {parentAuthor: userProfile[parentAuthor] + 1}}
+                )
 
-    def command_info(self, message):
-        message.reply(infoMessage)
 
+    async def sendCheatReport(self):
+        # Add Suspicious Users
+        content = "" # TODO: figiure out wtf is this nonsense
+        async for user in self.db.basedHistory.find({}):
+            for key in user.keys():
+                if key != "_id" and key != "name":
+                    if user[key] > 5:
+                        content = (
+                            content
+                            + user["name"]
+                            + " based "
+                            + str(key)
+                            + " "
+                            + str(user[key])
+                            + " times.\n"
+                        )
+
+        # Send Cheat Report to Admin
+        if content != "":
+            admin = await self.get_admin()
+            await admin.message("Cheat Report", content)
+
+        await self.db.basedHistory.delete_many({})
 
 if __name__ == "__main__":
     from signal import signal
-
-    based_bot = BasedBot(bot)
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    based_bot = BasedBot(bot, loop=loop)
 
     for sig in [signal.SIGINT, signal.SIGTERM]:
-        signal(sig, based_bot.stop_signal)
+        signal(sig, lambda *a: asyncio.create_task(based_bot.stop_signal(*a)))
 
-    based_bot.run()
+    loop.run_until_complete(based_bot.run())
